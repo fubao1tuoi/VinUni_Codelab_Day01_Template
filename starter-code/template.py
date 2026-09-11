@@ -12,6 +12,9 @@ Instructions:
 import os
 import time
 from typing import Any, Callable
+from openai import OpenAI
+from google import genai
+from google.genai import types
 
 # ---------------------------------------------------------------------------
 # Estimated costs per 1M INPUT & OUTPUT tokens (USD) as of March 2026
@@ -20,7 +23,7 @@ from typing import Any, Callable
 PRICING_1M_TOKENS = {
     "gpt-4o": {"input": 5.00, "output": 20.00},
     "gpt-4o-mini": {"input": 0.150, "output": 0.600},
-    "gemini-2.5-flash": {"input": 0.075, "output": 0.300},
+    "gemini-3.6-flash": {"input": 0.075, "output": 0.300},
     "gemini-2.5-pro": {"input": 1.25, "output": 5.00},
     "claude-3-5-sonnet": {"input": 3.00, "output": 15.00},
     "claude-3-5-haiku": {"input": 0.80, "output": 4.00},
@@ -29,7 +32,7 @@ PRICING_1M_TOKENS = {
 # Standard Model Identifiers
 OPENAI_MODEL = "gpt-4o"
 OPENAI_MINI_MODEL = "gpt-4o-mini"
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.6-flash"
 ANTHROPIC_MODEL = "claude-3-5-haiku"
 
 
@@ -65,9 +68,26 @@ def call_openai(
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         # response.usage contains input_tokens and output_tokens (prompt_tokens/completion_tokens)
     """
-    # TODO: Import OpenAI, instantiate client, call chat.completions.create with parameters,
-    #       measure execution start/end time, extract text and token usage, and return them.
-    raise NotImplementedError("Implement call_openai")
+    client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    
+    start_time = time.time()
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=max_tokens,
+    )
+    end_time = time.time()
+    
+    latency = end_time - start_time
+    response_text = response.choices[0].message.content
+    usage = {
+        "input_tokens": response.usage.prompt_tokens,
+        "output_tokens": response.usage.completion_tokens,
+    }
+    
+    return response_text, latency, usage
 
 
 # ---------------------------------------------------------------------------
@@ -113,9 +133,30 @@ def call_gemini(
         Ensure your usage dictionary extracts 'input_tokens' and 'output_tokens' 
         from the response metadata (e.g. response.usage_metadata).
     """
-    # TODO: Initialize Gemini client, set config parameters, call generate_content,
-    #       measure latency, extract response text and usage metadata, and return the tuple.
-    raise NotImplementedError("Implement call_gemini")
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    
+    config = types.GenerateContentConfig(
+        temperature=temperature,
+        top_p=top_p,
+        max_output_tokens=max_tokens,
+    )
+    
+    start_time = time.time()
+    response = client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=config,
+    )
+    end_time = time.time()
+    
+    latency = end_time - start_time
+    response_text = response.text
+    usage = {
+        "input_tokens": response.usage_metadata.input_token_count,
+        "output_tokens": response.usage_metadata.output_token_count,
+    }
+    
+    return response_text, latency, usage
 
 
 # ---------------------------------------------------------------------------
@@ -200,8 +241,32 @@ def streaming_chatbot() -> None:
         - Check how to stream responses using client.chats or model.generate_content(..., stream=True).
         - Keep history limited to the last 3 turns to optimize context window and costs.
     """
-    # TODO: Setup interactive session, prompt user for input, stream response, and update history.
-    raise NotImplementedError("Implement streaming_chatbot")
+    client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    
+    # Create a chat session (manages history automatically)
+    chat = client.chats.create(model=GEMINI_MODEL)
+    
+    print("Chatbot ready! Type 'quit' or 'exit' to end.")
+    
+    while True:
+        user_input = input("\nYou: ").strip()
+        
+        if user_input.lower() in ["quit", "exit"]:
+            print("Goodbye!")
+            break
+        
+        if not user_input:
+            continue
+        
+        # Stream response
+        print("Bot: ", end="", flush=True)
+        response_stream = chat.send_message_stream(user_input)
+        
+        for chunk in response_stream:
+            if chunk.text:
+                print(chunk.text, end="", flush=True)
+        
+        print()  # Newline after response
 
 
 # ---------------------------------------------------------------------------
